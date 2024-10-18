@@ -12,22 +12,17 @@ from enum import Enum
 class AminoAcid(Enum):
     A = 0  # Alanine
     B = 1  # Lets say B is for a different amino acid
-    F = 2  # Phenylalanine
-    P = 3  # Proline
+ 
 
 # Update the constants
 SIGMA_VALUES: np.ndarray = np.array([
-    [0.5, 0.55, 0.6, 0.55],
-    [0.55, 0.6, 0.65, 0.6],
-    [0.6, 0.65, 0.5, 0.65],
-    [0.55, 0.6, 0.65, 0.5]
+    [0.5, 0.55],
+    [0.55, 0.6]   
 ])
 
 EPSILON_VALUES: np.ndarray = np.array([
-    [1.0, 0.8, 0.7, 0.9],
-    [0.8, 1.2, 0.9, 0.7],
-    [0.7, 0.9, 0.8, 0.6],
-    [0.9, 0.7, 0.6, 0.8]
+    [1.0, 1.0],
+    [1.0, 1.0]
 ])
 
 AMINO_ACID_COLORS: List[str] = ['red', 'blue', 'green', 'purple']
@@ -35,21 +30,22 @@ AMINO_ACID_COLORS: List[str] = ['red', 'blue', 'green', 'purple']
 class PlottingMethod(str, Enum):
     SNAKING = 'snaking'
     SPIRAL = 'spiral'
+    CONSTANT_SPIRAL = 'constant_spiral'
 
 # Define simulation parameters
 @dataclasses.dataclass
 class SimulationParams:
     box_size: float = 10.0
-    num_steps: int = 200
+    num_steps: int = 3000
     print_interval: int = 1
-    animation_interval: int = 1
+    animation_interval: int = 3
     initial_scale: float = 0.8
     alpha: int = 2
     bond_stiffness: float = 2.0
     soft_sphere_scale: float = 0.05
     spiral_turn_ratio: float = 2 * np.pi * (2 - np.sqrt(3))
-    plotting_method: PlottingMethod = PlottingMethod.SPIRAL
-    snake_line_length: int = 10  
+    plotting_method: PlottingMethod = PlottingMethod.CONSTANT_SPIRAL
+    snake_line_length: int = 5 
     initial_position_display_time: float = 3.0  # Time in seconds to display initial position
 
 
@@ -98,11 +94,13 @@ def create_system_potential(sequence, params, displacement_fn, pairwise_displace
     
     return system_potential
 
-def generate_initial_positions(n: int, params: SimulationParams) -> jnp.ndarray:
+def generate_initial_positions(n: int, params: SimulationParams, sequence: List[int]) -> jnp.ndarray:
     if params.plotting_method == PlottingMethod.SNAKING:
         nodes = snaking_curve(n, params.snake_line_length)
     elif params.plotting_method == PlottingMethod.SPIRAL:
         nodes = spiral_curve(n, params.spiral_turn_ratio)
+    elif params.plotting_method == PlottingMethod.CONSTANT_SPIRAL:
+        nodes = constant_spiral_curve(n, sequence)
     else:
         raise ValueError(f"Invalid plotting method: {params.plotting_method}")
     
@@ -124,6 +122,31 @@ def spiral_curve(n: int, turn_ratio: float, center: Tuple[float, float] = (0, 0)
         x = center[0] + radius * np.cos(angle)
         y = center[1] + radius * np.sin(angle)
         points.append([x, y])
+    return np.array(points)
+
+def constant_spiral_curve(n: int, sequence: List[int], center: Tuple[float, float] = (0, 0)) -> np.ndarray:
+    points = []
+    angle = 0
+    radius = 0.5  # Start with a small radius
+    
+    for i in range(n):
+        if i > 0:
+            # Calculate the equilibrium bond distance
+            bond_length = (SIGMA_VALUES[sequence[i-1]][sequence[i-1]] + SIGMA_VALUES[sequence[i]][sequence[i]]) / 2
+            
+            # Calculate the turn ratio based on the current radius
+            turn_ratio = bond_length / radius
+            
+            # Update the angle
+            angle += turn_ratio
+        
+        x = center[0] + radius * np.cos(angle)
+        y = center[1] + radius * np.sin(angle)
+        points.append([x, y])
+        
+        # Increase the radius slightly for the next point
+        radius += 0.01  # may need to change this value for optimal results
+    
     return np.array(points)
 
 def plot_positions(positions: Union[np.ndarray, jnp.ndarray], sequence: List[int], filename: str, energy: float, draw_bonds: bool = True):
@@ -177,7 +200,8 @@ def run_simulation(sequence: List[int], params: SimulationParams) -> Tuple[jnp.n
     displacement_fn, shift_fn = space.free()
     pairwise_displacement_fn = space.map_product(displacement_fn)
 
-    initial_positions = generate_initial_positions(len(sequence), params)
+    # Fix: Pass the sequence argument to generate_initial_positions
+    initial_positions = generate_initial_positions(len(sequence), params, sequence)
     
     system_potential = create_system_potential(
         jnp.array(sequence),
@@ -275,9 +299,9 @@ def create_animation(position_trajectory: List[np.ndarray], sequence: List[int],
 
 def main():
     # Define the sequence of amino acids
-    sequence_string = "ABBABA"  # ordered
-    sequence = [AminoAcid[aa].value for aa in sequence_string]
-    #sequence = [AminoAcid.A.value] * 500  # 500 Alanine amino acids   
+    #sequence_string = "ABBABA"  # ordered
+    #sequence = [AminoAcid[aa].value for aa in sequence_string]
+    sequence = [AminoAcid.A.value] * 500  #a bunch of one type 
     params = SimulationParams()  
     final_positions, energy_trajectory, position_trajectory = run_simulation(sequence, params)
     print(f"Initial Energy: {energy_trajectory[0]:.2f}")
